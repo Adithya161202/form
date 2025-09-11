@@ -1,0 +1,256 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Employee Clock Form</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; color: #111; }
+    body { max-width: 900px; margin: 28px auto; padding: 18px; }
+    h1 { margin-bottom: 8px; }
+    form { display: grid; gap: 10px; }
+    fieldset { border: 1px solid #e3e3e3; padding: 12px; border-radius: 8px; }
+    label { display:block; font-size:0.92rem; margin-bottom:6px; }
+    input[type="text"], input[type="date"], input[type="time"], input[type="number"], textarea {
+      width:100%; padding:8px 10px; border-radius:6px; border:1px solid #ccc; box-sizing:border-box;
+    }
+    .row { display:flex; gap:10px; }
+    .row > * { flex:1; }
+    button { padding:10px 14px; border-radius:8px; border:0; background:#0366d6; color:white; cursor:pointer; }
+    button.secondary { background:#6c757d; }
+    small { color:#666; }
+    pre { background:#f6f8fa; border:1px dashed #ddd; padding:12px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h1>Employee Clock Form</h1>
+  <p><small>Fill in the details; use <strong>Capture Location</strong> to auto-fill geolocation and address where allowed.</small></p>
+
+  <form id="clockForm" autocomplete="off">
+    <fieldset>
+      <label for="employee_name">Employee Name <span style="color:crimson">*</span></label>
+      <input id="employee_name" name="employee_name" type="text" placeholder="Full name" required>
+
+      <label for="project_name">Project Name (optional)</label>
+      <input id="project_name" name="project_name" type="text" placeholder="Project name (optional)">
+    </fieldset>
+
+    <fieldset>
+      <div class="row">
+        <div>
+          <label for="clock_in">Clock In Time <span style="color:crimson">*</span></label>
+          <input id="clock_in" name="clock_in" type="time" required>
+        </div>
+        <div>
+          <label for="clock_out">Clock Out Time <span style="color:crimson">*</span></label>
+          <input id="clock_out" name="clock_out" type="time" required>
+        </div>
+      </div>
+
+      <label for="date">Date <span style="color:crimson">*</span></label>
+      <input id="date" name="date" type="date" required>
+    </fieldset>
+
+    <fieldset>
+      <legend>Geolocation & Address</legend>
+
+      <div class="row">
+        <div>
+          <label for="latitude">Latitude</label>
+          <input id="latitude" name="latitude" type="text" readonly placeholder="click Capture Location">
+        </div>
+        <div>
+          <label for="longitude">Longitude</label>
+          <input id="longitude" name="longitude" type="text" readonly placeholder="click Capture Location">
+        </div>
+      </div>
+
+      <label for="country">Country</label>
+      <input id="country" name="country" type="text" readonly placeholder="Auto-filled if reverse geocode succeeds">
+
+      <div class="row">
+        <div>
+          <label for="city">City</label>
+          <input id="city" name="city" type="text" readonly placeholder="Auto-filled if reverse geocode succeeds">
+        </div>
+        <div>
+          <label for="postal">Postal Code</label>
+          <input id="postal" name="postal" type="text" readonly placeholder="Auto-filled if reverse geocode succeeds">
+        </div>
+      </div>
+
+      <label for="street">Street Address</label>
+      <input id="street" name="street" type="text" readonly placeholder="Auto-filled if reverse geocode succeeds">
+
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button type="button" id="captureLocation">Capture Location</button>
+        <button type="button" class="secondary" id="clearLocation">Clear Location</button>
+      </div>
+      <small id="geoStatus"></small>
+    </fieldset>
+
+    <fieldset>
+      <label for="ip_address">IP Address</label>
+      <input id="ip_address" name="ip_address" type="text" readonly placeholder="Will be fetched automatically">
+
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button type="button" id="fetchIP" class="secondary">Fetch IP</button>
+        <small style="align-self:center; margin-left:6px;" id="ipStatus"></small>
+      </div>
+    </fieldset>
+
+    <div style="display:flex; gap:10px;">
+      <button type="submit">Submit</button>
+      <button type="button" class="secondary" id="previewBtn">Preview JSON</button>
+    </div>
+
+  </form>
+
+  <h3 style="margin-top:22px">Submission preview</h3>
+  <pre id="result">No preview yet.</pre>
+
+  <script>
+    // Utility: set date to today in date input
+    (function setTodayDate(){
+      const dateInput = document.getElementById('date');
+      const today = new Date();
+      // Format YYYY-MM-DD
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2,'0');
+      const dd = String(today.getDate()).padStart(2,'0');
+      dateInput.value = `${yyyy}-${mm}-${dd}`;
+    })();
+
+    // Capture location (geolocation) and reverse geocode using Nominatim (OpenStreetMap)
+    const captureBtn = document.getElementById('captureLocation');
+    const clearBtn = document.getElementById('clearLocation');
+    const geoStatus = document.getElementById('geoStatus');
+
+    async function reverseGeocode(lat, lon) {
+      // Nominatim reverse geocoding endpoint (public). Respect usage policy for heavy use.
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&addressdetails=1`;
+      try {
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('Reverse geocode failed: ' + res.status);
+        const data = await res.json();
+        return data;
+      } catch (err) {
+        console.warn('Reverse geocode error', err);
+        return null;
+      }
+    }
+
+    captureBtn.addEventListener('click', async () => {
+      geoStatus.textContent = 'Requesting location... (you may be asked for permission)';
+      if (!navigator.geolocation) {
+        geoStatus.textContent = 'Geolocation is not supported by this browser.';
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        document.getElementById('latitude').value = lat;
+        document.getElementById('longitude').value = lon;
+        geoStatus.textContent = 'Location captured — attempting to reverse-geocode...';
+        // Attempt reverse geocoding
+        const r = await reverseGeocode(lat, lon);
+        if (r && r.address) {
+          const addr = r.address;
+          document.getElementById('country').value = addr.country || '';
+          // city/town/village fallback chain
+          document.getElementById('city').value = addr.city || addr.town || addr.village || addr.hamlet || '';
+          document.getElementById('postal').value = addr.postcode || '';
+          // Build a readable street address if available
+          const parts = [];
+          if (addr.road) parts.push(addr.road);
+          if (addr.house_number) parts.unshift(addr.house_number);
+          if (addr.suburb) parts.push(addr.suburb);
+          if (addr.neighbourhood) parts.push(addr.neighbourhood);
+          const street = parts.join(', ');
+          document.getElementById('street').value = street || (r.display_name || '');
+          geoStatus.textContent = 'Reverse geocode succeeded.';
+        } else {
+          geoStatus.textContent = 'Reverse geocode failed or returned no address. Coordinates are filled.';
+        }
+      }, (err) => {
+        geoStatus.textContent = 'Could not get location: ' + (err.message || err.code || 'unknown');
+      }, {
+        enableHighAccuracy: true,
+        maximumAge: 60_000,
+        timeout: 15_000
+      });
+    });
+
+    clearBtn.addEventListener('click', () => {
+      ['latitude','longitude','country','city','postal','street'].forEach(id => document.getElementById(id).value = '');
+      geoStatus.textContent = 'Location cleared.';
+    });
+
+    // Fetch public IP using ipify
+    const ipBtn = document.getElementById('fetchIP');
+    const ipStatus = document.getElementById('ipStatus');
+    ipBtn.addEventListener('click', async () => {
+      ipStatus.textContent = 'Fetching...';
+      try {
+        const resp = await fetch('https://api.ipify.org?format=json');
+        if (!resp.ok) throw new Error('IP fetch failed: ' + resp.status);
+        const j = await resp.json();
+        document.getElementById('ip_address').value = j.ip || '';
+        ipStatus.textContent = 'IP fetched.';
+      } catch (err) {
+        console.warn(err);
+        ipStatus.textContent = 'Failed to fetch IP.';
+      }
+    });
+
+    // Build submission object
+    function buildPayload() {
+      const form = document.getElementById('clockForm');
+      const fd = new FormData(form);
+      const obj = {};
+      for (const [k, v] of fd.entries()) {
+        obj[k] = v;
+      }
+      // Tidy up: convert empty strings to null for some fields
+      ['project_name','street','city','postal','country'].forEach(k => {
+        if (obj[k] === '') obj[k] = null;
+      });
+      // add timestamps (ISO) for reference
+      obj._submitted_at = new Date().toISOString();
+      return obj;
+    }
+
+    // Preview button
+    document.getElementById('previewBtn').addEventListener('click', () => {
+      const payload = buildPayload();
+      document.getElementById('result').textContent = JSON.stringify(payload, null, 2);
+    });
+
+    // Submit handler (example: currently just shows JSON + console.log)
+    document.getElementById('clockForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const payload = buildPayload();
+      // TODO: Replace this block with your POST to an endpoint or to GitHub Issues API as required.
+      console.log('Submitting payload:', payload);
+      document.getElementById('result').textContent = JSON.stringify(payload, null, 2);
+      alert('Form ready. Check the preview below. Replace the submit handler to POST to your server/API.');
+    });
+
+    // Optional: try auto-fetch IP on load (comment out if undesired)
+    (async function tryAutoIP(){
+      // Some browsers may block calls on insecure origins - only work on https or localhost
+      try {
+        const resp = await fetch('https://api.ipify.org?format=json');
+        if (resp.ok) {
+          const j = await resp.json();
+          document.getElementById('ip_address').value = j.ip || '';
+          ipStatus.textContent = 'IP auto-filled';
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+  </script>
+</body>
+</html>
